@@ -186,6 +186,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["command menu dollar $ slash /"],
   },
   {
+    id: "statusline-kb-status",
+    title: "Show KB status in statusline",
+    to: "/settings/general",
+    searchTerms: ["admera knowledge base kb reachability bottom bar"],
+  },
+  {
+    id: "statusline-bedrock-spend",
+    title: "Show Bedrock spend in statusline",
+    to: "/settings/general",
+    searchTerms: ["admera bedrock cost spend usage bottom bar"],
+  },
+  {
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",

@@ -17,6 +17,7 @@ import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
+import { StatuslineBar } from "./StatuslineBar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import {
@@ -238,7 +239,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         )}
         <SidebarRail onDoubleClick={resetSidebarWidth} />
       </Sidebar>
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1">{children}</div>
+        <StatuslineBar />
+      </div>
       <SidebarControl />
     </SidebarProvider>
   );
