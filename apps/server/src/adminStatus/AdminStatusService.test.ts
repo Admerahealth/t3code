@@ -1,5 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - test-only temp-path construction;
+// see the same exemption in ../pathExpansion.ts.
 import * as NodeOS from "node:os";
-import { join } from "node:path";
+import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
@@ -30,7 +32,7 @@ const ONLINE_RESULT: ProcessRunner.ProcessRunOutput = {
 
 // Guaranteed not to exist: no test writes to this path.
 const missingBedrockCacheEnv = Layer.succeed(HostProcessEnvironment, {
-  XDG_CACHE_HOME: join(NodeOS.tmpdir(), "t3-admin-status-test-missing-cache"),
+  XDG_CACHE_HOME: NodePath.join(NodeOS.tmpdir(), "t3-admin-status-test-missing-cache"),
 });
 
 const withMockedProcessRunner = (result: ProcessRunner.ProcessRunOutput) =>

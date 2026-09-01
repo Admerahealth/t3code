@@ -115,7 +115,7 @@ export const make = Effect.gen(function* () {
         timeout: KB_PROBE_TIMEOUT,
         timeoutBehavior: "timedOutResult",
       })
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+      .pipe(Effect.orElseSucceed(() => null));
     const checkedAt = yield* DateTime.now;
     return {
       online: result !== null && !result.timedOut && result.code === 0,

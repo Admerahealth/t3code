@@ -3,6 +3,7 @@
  * today's cached Bedrock spend. Each segment is independently hidden by its
  * own client setting; the bar renders nothing when both are off.
  */
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { usePrimaryEnvironment } from "~/state/environments";
@@ -39,25 +40,37 @@ export function StatuslineBar() {
       data-statusline=""
     >
       {showStatuslineKbStatus && (
-        <span
-          className={cn(
-            "pointer-events-auto",
-            kbOnline === true && "text-success",
-            kbOnline === false && "text-destructive",
-            kbOnline === null && "text-muted-foreground",
-          )}
-          title="Admera knowledge base"
-        >
-          KB {kbOnline === true ? "●" : "○"}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className={cn(
+                  "pointer-events-auto",
+                  kbOnline === true && "text-success",
+                  kbOnline === false && "text-destructive",
+                  kbOnline === null && "text-muted-foreground",
+                )}
+              >
+                KB {kbOnline === true ? "●" : "○"}
+              </span>
+            }
+          />
+          <TooltipPopup side="top">Admera knowledge base</TooltipPopup>
+        </Tooltip>
       )}
       {showStatuslineBedrockSpend && bedrockDaily !== null && (
-        <span
-          className="pointer-events-auto text-muted-foreground"
-          title={`Bedrock spend for ${bedrockDaily.date} (${bedrockDaily.user})`}
-        >
-          {"\u{1F4B5}"} {formatUsd(bedrockDaily.cost)}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="pointer-events-auto text-muted-foreground">
+                {"\u{1F4B5}"} {formatUsd(bedrockDaily.cost)}
+              </span>
+            }
+          />
+          <TooltipPopup side="top">
+            Bedrock spend for {bedrockDaily.date} ({bedrockDaily.user})
+          </TooltipPopup>
+        </Tooltip>
       )}
     </div>
   );
