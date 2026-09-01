@@ -89,7 +89,7 @@ interface KbStatusCacheEntry {
 export class AdminStatusService extends Context.Service<
   AdminStatusService,
   {
-    readonly readStatus: () => Effect.Effect<AdminStatusResult>;
+    readonly readStatus: Effect.Effect<AdminStatusResult>;
   }
 >()("t3/adminStatus/AdminStatusService") {}
 
@@ -131,7 +131,14 @@ export const make = Effect.gen(function* () {
     if (kbCliEnv.length > 0) {
       return kbCliEnv;
     }
+    // resolveCommandPath does its own internal FileSystem/Path service
+    // lookup, independent of the values already resolved above; re-provide
+    // them from here so that lookup is satisfied locally instead of leaking
+    // into readStatus's own requirements (mirrors resolveTranscriptDirs's
+    // Effect.provideService(Path.Path, path) in UsageService.ts).
     const onPath = yield* resolveCommandPath(DEFAULT_KB_COMMAND).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
       Effect.orElseSucceed(() => null),
     );
     if (onPath !== null) {
@@ -219,14 +226,14 @@ export const make = Effect.gen(function* () {
     return resolved;
   });
 
-  return AdminStatusService.of({
-    readStatus: () =>
-      Effect.all([readKbStatus, readBedrockDaily], {
-        concurrency: 2,
-      }).pipe(
-        Effect.map(([kb, bedrockDaily]) => ({ kb, bedrockDaily }) satisfies AdminStatusResult),
-      ) as unknown as Effect.Effect<AdminStatusResult>,
+  const readStatus = Effect.gen(function* () {
+    const [kb, bedrockDaily] = yield* Effect.all([readKbStatus, readBedrockDaily], {
+      concurrency: 2,
+    });
+    return { kb, bedrockDaily } satisfies AdminStatusResult;
   });
+
+  return AdminStatusService.of({ readStatus });
 });
 
 export const layer = Layer.effect(AdminStatusService, make);
@@ -235,13 +242,12 @@ export const layer = Layer.effect(AdminStatusService, make);
 export const layerTest = Layer.succeed(
   AdminStatusService,
   AdminStatusService.of({
-    readStatus: () =>
-      Effect.succeed({
-        kb: {
-          online: false,
-          checkedAt: "1970-01-01T00:00:00.000Z",
-        },
-        bedrockDaily: null,
-      }),
+    readStatus: Effect.succeed({
+      kb: {
+        online: false,
+        checkedAt: "1970-01-01T00:00:00.000Z",
+      },
+      bedrockDaily: null,
+    }),
   }),
 );

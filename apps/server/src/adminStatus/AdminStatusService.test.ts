@@ -87,7 +87,7 @@ describe("AdminStatusService", () => {
   it.live("reports kb offline when the probe times out", () =>
     Effect.gen(function* () {
       const service = yield* AdminStatusService.AdminStatusService;
-      const status = yield* service.readStatus();
+      const status = yield* service.readStatus;
       expect(status.kb.online).toBe(false);
     }).pipe(Effect.provide(testLayer(TIMED_OUT_RESULT))),
   );
@@ -95,7 +95,7 @@ describe("AdminStatusService", () => {
   it.live("reports bedrockDaily as null when the cache file is missing", () =>
     Effect.gen(function* () {
       const service = yield* AdminStatusService.AdminStatusService;
-      const status = yield* service.readStatus();
+      const status = yield* service.readStatus;
       expect(status.bedrockDaily).toBeNull();
     }).pipe(Effect.provide(testLayer(ONLINE_RESULT))),
   );

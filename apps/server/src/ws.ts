@@ -1758,7 +1758,7 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverGetAdminStatus]: (_input) =>
-          observeRpcEffect(WS_METHODS.serverGetAdminStatus, adminStatus.readStatus(), {
+          observeRpcEffect(WS_METHODS.serverGetAdminStatus, adminStatus.readStatus, {
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) =>
