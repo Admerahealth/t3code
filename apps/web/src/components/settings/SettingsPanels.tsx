@@ -514,6 +514,13 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
         ? ["Show skills in slash menu"]
         : []),
+      ...(settings.showStatuslineKbStatus !== DEFAULT_UNIFIED_SETTINGS.showStatuslineKbStatus
+        ? ["Show KB status in statusline"]
+        : []),
+      ...(settings.showStatuslineBedrockSpend !==
+      DEFAULT_UNIFIED_SETTINGS.showStatuslineBedrockSpend
+        ? ["Show Bedrock spend in statusline"]
+        : []),
       ...(settings.enableLegacyTokenStreaming !==
       DEFAULT_UNIFIED_SETTINGS.enableLegacyTokenStreaming
         ? ["Stream token by token"]
@@ -586,6 +593,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.showSkillsInSlashMenu,
+      settings.showStatuslineKbStatus,
+      settings.showStatuslineBedrockSpend,
       settings.timestampFormat,
       settings.wordWrap,
       followSystem,
@@ -662,6 +671,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
+      showStatuslineKbStatus: DEFAULT_UNIFIED_SETTINGS.showStatuslineKbStatus,
+      showStatuslineBedrockSpend: DEFAULT_UNIFIED_SETTINGS.showStatuslineBedrockSpend,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -2123,6 +2134,59 @@ export function GeneralSettingsPanel() {
                 updateSettings({ showSkillsInSlashMenu: Boolean(checked) })
               }
               aria-label="Show skills in slash menu"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("statusline-kb-status")}
+          description="Show a KB reachability indicator in the bottom statusline."
+          resetAction={
+            settings.showStatuslineKbStatus !== DEFAULT_UNIFIED_SETTINGS.showStatuslineKbStatus ? (
+              <SettingResetButton
+                label="KB status in statusline"
+                onClick={() =>
+                  updateSettings({
+                    showStatuslineKbStatus: DEFAULT_UNIFIED_SETTINGS.showStatuslineKbStatus,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showStatuslineKbStatus}
+              onCheckedChange={(checked) =>
+                updateSettings({ showStatuslineKbStatus: Boolean(checked) })
+              }
+              aria-label="Show KB status in statusline"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("statusline-bedrock-spend")}
+          description="Show today's cached Bedrock spend in the bottom statusline."
+          resetAction={
+            settings.showStatuslineBedrockSpend !==
+            DEFAULT_UNIFIED_SETTINGS.showStatuslineBedrockSpend ? (
+              <SettingResetButton
+                label="Bedrock spend in statusline"
+                onClick={() =>
+                  updateSettings({
+                    showStatuslineBedrockSpend: DEFAULT_UNIFIED_SETTINGS.showStatuslineBedrockSpend,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showStatuslineBedrockSpend}
+              onCheckedChange={(checked) =>
+                updateSettings({ showStatuslineBedrockSpend: Boolean(checked) })
+              }
+              aria-label="Show Bedrock spend in statusline"
             />
           }
         />

@@ -30,9 +30,16 @@ const ONLINE_RESULT: ProcessRunner.ProcessRunOutput = {
   timedOut: false,
 };
 
-// Guaranteed not to exist: no test writes to this path.
+const MISSING_TOOLS_DIR = NodePath.join(NodeOS.tmpdir(), "t3-admin-status-test-missing-cache");
+
+// Guaranteed not to exist: neither the Bedrock cache file nor any
+// admera-claude-tools install lives here, so the fire-and-forget
+// refresh-script existence check in AdminStatusService also reliably
+// misses (this must never spawn a real script during a test run).
 const missingBedrockCacheEnv = Layer.succeed(HostProcessEnvironment, {
-  XDG_CACHE_HOME: NodePath.join(NodeOS.tmpdir(), "t3-admin-status-test-missing-cache"),
+  XDG_CACHE_HOME: MISSING_TOOLS_DIR,
+  ADMERA_CLAUDE_TOOLS: MISSING_TOOLS_DIR,
+  ADMERA_KB_CLI: "nonexistent-kb",
 });
 
 const withMockedProcessRunner = (result: ProcessRunner.ProcessRunOutput) =>
@@ -41,8 +48,14 @@ const withMockedProcessRunner = (result: ProcessRunner.ProcessRunOutput) =>
     ProcessRunner.ProcessRunner.of({ run: () => Effect.succeed(result) }),
   );
 
+// Exercises the real `AdminStatusService.layer` (not just `make`), so the
+// production wiring path is under test.
 const testLayer = (result: ProcessRunner.ProcessRunOutput) =>
-  Layer.mergeAll(NodeServices.layer, missingBedrockCacheEnv, withMockedProcessRunner(result));
+  AdminStatusService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(NodeServices.layer, missingBedrockCacheEnv, withMockedProcessRunner(result)),
+    ),
+  );
 
 describe("resolveBedrockDailyCost", () => {
   const parsed = {
@@ -73,16 +86,16 @@ describe("resolveBedrockDailyCost", () => {
 describe("AdminStatusService", () => {
   it.live("reports kb offline when the probe times out", () =>
     Effect.gen(function* () {
-      const service = yield* AdminStatusService.make;
-      const status = yield* service.readStatus;
+      const service = yield* AdminStatusService.AdminStatusService;
+      const status = yield* service.readStatus();
       expect(status.kb.online).toBe(false);
     }).pipe(Effect.provide(testLayer(TIMED_OUT_RESULT))),
   );
 
   it.live("reports bedrockDaily as null when the cache file is missing", () =>
     Effect.gen(function* () {
-      const service = yield* AdminStatusService.make;
-      const status = yield* service.readStatus;
+      const service = yield* AdminStatusService.AdminStatusService;
+      const status = yield* service.readStatus();
       expect(status.bedrockDaily).toBeNull();
     }).pipe(Effect.provide(testLayer(ONLINE_RESULT))),
   );

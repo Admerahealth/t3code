@@ -12,6 +12,7 @@ import * as NodeOS from "node:os";
 
 import type { AdminStatusResult, BedrockDailyCost, KbStatus } from "@t3tools/contracts";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import { resolveCommandPath } from "@t3tools/shared/shell";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -32,8 +33,12 @@ const KB_PROBE_TIMEOUT = "5 seconds";
 const KB_PROBE_ARGS = ["--quiet", "list-recent", "--limit", "1"];
 const DEFAULT_KB_COMMAND = "kb";
 
-/** Never probe more often than this, regardless of how often clients poll. */
-const KB_STATUS_CACHE_TTL_NANOS = 60_000_000_000n;
+/**
+ * Poll cadence is 60s (see the `adminStatus` atom in client-runtime); the
+ * cache TTL is set a little above that so a poll landing just after a probe
+ * still hits cache instead of missing every single time.
+ */
+const KB_STATUS_CACHE_TTL_NANOS = 90_000_000_000n;
 
 const BEDROCK_CACHE_RELATIVE_SEGMENTS = ["admera-claude-tools", "bedrock-daily-cost.json"];
 
@@ -52,9 +57,7 @@ const BedrockDailyCostFile = Schema.Struct({
   refreshed_at: Schema.String,
 });
 const decodeBedrockDailyCostFile = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    BedrockDailyCostFile as unknown as Schema.Codec<typeof BedrockDailyCostFile.Type>,
-  ),
+  Schema.fromJsonString(BedrockDailyCostFile),
 );
 
 /**
@@ -86,7 +89,7 @@ interface KbStatusCacheEntry {
 export class AdminStatusService extends Context.Service<
   AdminStatusService,
   {
-    readonly readStatus: Effect.Effect<AdminStatusResult>;
+    readonly readStatus: () => Effect.Effect<AdminStatusResult>;
   }
 >()("t3/adminStatus/AdminStatusService") {}
 
@@ -95,6 +98,18 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const hostEnvironment = yield* HostProcessEnvironment;
+
+  /**
+   * Base install directory for `admera-claude-tools`. Shared by the `kb`
+   * PATH-lookup fallback and the Bedrock cache refresher: both are
+   * artifacts of the same external tool install.
+   */
+  const resolveAdmeraClaudeToolsHome = Effect.sync(() => {
+    const toolsHomeEnv = hostEnvironment["ADMERA_CLAUDE_TOOLS"]?.trim() ?? "";
+    return toolsHomeEnv.length > 0
+      ? path.resolve(expandHomePath(toolsHomeEnv))
+      : path.join(NodeOS.homedir(), "admera-claude-tools");
+  });
 
   const resolveBedrockCachePath = Effect.sync(() => {
     const xdgCacheHome = hostEnvironment["XDG_CACHE_HOME"]?.trim() ?? "";
@@ -105,9 +120,29 @@ export const make = Effect.gen(function* () {
     return path.join(cacheBase, ...BEDROCK_CACHE_RELATIVE_SEGMENTS);
   });
 
-  const probeKb = Effect.fn("AdminStatusService.probeKb")(function* () {
+  /**
+   * Resolves the `kb` binary: an explicit override wins outright; otherwise
+   * a normal PATH lookup; otherwise the fixed install location, since a
+   * GUI-launched server (no shell profile, no augmented PATH) still needs to
+   * reach it.
+   */
+  const resolveKbCommand = Effect.gen(function* () {
     const kbCliEnv = hostEnvironment["ADMERA_KB_CLI"]?.trim() ?? "";
-    const command = kbCliEnv.length > 0 ? kbCliEnv : DEFAULT_KB_COMMAND;
+    if (kbCliEnv.length > 0) {
+      return kbCliEnv;
+    }
+    const onPath = yield* resolveCommandPath(DEFAULT_KB_COMMAND).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+    if (onPath !== null) {
+      return onPath;
+    }
+    const toolsHome = yield* resolveAdmeraClaudeToolsHome;
+    return path.join(toolsHome, "bin", DEFAULT_KB_COMMAND);
+  });
+
+  const probeKb = Effect.fn("AdminStatusService.probeKb")(function* () {
+    const command = yield* resolveKbCommand;
     const result = yield* processRunner
       .run({
         command,
@@ -115,7 +150,12 @@ export const make = Effect.gen(function* () {
         timeout: KB_PROBE_TIMEOUT,
         timeoutBehavior: "timedOutResult",
       })
-      .pipe(Effect.orElseSucceed(() => null));
+      .pipe(
+        Effect.tapError((error) =>
+          Effect.logDebug("AdminStatusService: kb probe failed", { command, error }),
+        ),
+        Effect.orElseSucceed(() => null),
+      );
     const checkedAt = yield* DateTime.now;
     return {
       online: result !== null && !result.timedOut && result.code === 0,
@@ -143,40 +183,65 @@ export const make = Effect.gen(function* () {
     return status;
   });
 
-  const readBedrockDaily = Effect.gen(function* () {
-    const cachePath = yield* resolveBedrockCachePath;
-    const parsed = yield* fileSystem.readFileString(cachePath).pipe(
-      Effect.flatMap((raw) => decodeBedrockDailyCostFile(raw)),
-      Effect.catchCause(() => Effect.succeed(null)),
-    );
-    const nowMs = yield* Clock.currentTimeMillis;
-    return resolveBedrockDailyCost(parsed, formatEasternDay(nowMs));
-  });
-
-  const readStatus = Effect.gen(function* () {
-    const [kb, bedrockDaily] = yield* Effect.all([readKbStatus, readBedrockDaily], {
-      concurrency: 2,
+  /**
+   * Fire-and-forget: the refresh script owns its own locking and silently
+   * no-ops on failure or if it's already running, so it is safe to nudge it
+   * on every stale/missing read. Detached so a hung script can never delay
+   * this (or any other) RPC.
+   */
+  const triggerBedrockRefresh = Effect.gen(function* () {
+    const toolsHome = yield* resolveAdmeraClaudeToolsHome;
+    const scriptPath = path.join(toolsHome, "scripts", "bedrock-daily-cost-refresh.sh");
+    const exists = yield* fileSystem.exists(scriptPath).pipe(Effect.orElseSucceed(() => false));
+    if (!exists) return;
+    yield* processRunner.run({
+      command: scriptPath,
+      args: ["--background"],
+      timeout: "5 seconds",
+      timeoutBehavior: "timedOutResult",
     });
-    return { kb, bedrockDaily } satisfies AdminStatusResult;
+  }).pipe(Effect.ignore, Effect.forkDetach);
+
+  // Path resolution lives inside the same guarded block as the read and
+  // decode: a failure at any of the three stages must degrade to `null`,
+  // never fail the RPC.
+  const readBedrockDaily = Effect.gen(function* () {
+    const parsed = yield* Effect.gen(function* () {
+      const cachePath = yield* resolveBedrockCachePath;
+      const raw = yield* fileSystem.readFileString(cachePath);
+      return yield* decodeBedrockDailyCostFile(raw);
+    }).pipe(Effect.catchCause(() => Effect.succeed(null)));
+    const nowMs = yield* Clock.currentTimeMillis;
+    const resolved = resolveBedrockDailyCost(parsed, formatEasternDay(nowMs));
+    if (resolved === null) {
+      yield* triggerBedrockRefresh;
+    }
+    return resolved;
   });
 
-  return AdminStatusService.of({ readStatus });
+  return AdminStatusService.of({
+    readStatus: () =>
+      Effect.all([readKbStatus, readBedrockDaily], {
+        concurrency: 2,
+      }).pipe(
+        Effect.map(([kb, bedrockDaily]) => ({ kb, bedrockDaily }) satisfies AdminStatusResult),
+      ) as unknown as Effect.Effect<AdminStatusResult>,
+  });
 });
 
-export const layer = Layer.effect(AdminStatusService, make).pipe(
-  Layer.provide(ProcessRunner.layer),
-);
+export const layer = Layer.effect(AdminStatusService, make);
 
 /** Test stub: returns offline KB and null Bedrock daily cost. */
 export const layerTest = Layer.succeed(
   AdminStatusService,
   AdminStatusService.of({
-    readStatus: Effect.succeed({
-      kb: {
-        online: false,
-        checkedAt: "1970-01-01T00:00:00.000Z",
-      },
-      bedrockDaily: null,
-    }),
+    readStatus: () =>
+      Effect.succeed({
+        kb: {
+          online: false,
+          checkedAt: "1970-01-01T00:00:00.000Z",
+        },
+        bedrockDaily: null,
+      }),
   }),
 );

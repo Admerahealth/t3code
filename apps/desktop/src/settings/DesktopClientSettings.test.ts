@@ -39,6 +39,8 @@ const clientSettings: ClientSettings = {
   glassOpacity: 80,
   planModeEnabled: false,
   showSkillsInSlashMenu: false,
+  showStatuslineKbStatus: true,
+  showStatuslineBedrockSpend: true,
   providerModelPreferences: {},
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {

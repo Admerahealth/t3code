@@ -1,7 +1,8 @@
 /**
  * Persistent bottom statusline: Admera knowledge-base reachability and
  * today's cached Bedrock spend. Each segment is independently hidden by its
- * own client setting; the bar renders nothing when both are off.
+ * own client setting; the bar renders nothing when both are off, and the
+ * underlying status query is not even issued in that case.
  */
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -19,24 +20,28 @@ export function StatuslineBar() {
     showStatuslineKbStatus: settings.showStatuslineKbStatus,
     showStatuslineBedrockSpend: settings.showStatuslineBedrockSpend,
   }));
+  const showBar = showStatuslineKbStatus || showStatuslineBedrockSpend;
   const primaryEnvironment = usePrimaryEnvironment();
   const environmentId = primaryEnvironment?.environmentId ?? null;
-  const { data } = useEnvironmentQuery(
-    environmentId === null ? null : serverEnvironment.adminStatus({ environmentId, input: {} }),
+  const { data, error } = useEnvironmentQuery(
+    showBar && environmentId !== null
+      ? serverEnvironment.adminStatus({ environmentId, input: {} })
+      : null,
   );
 
-  if (!showStatuslineKbStatus && !showStatuslineBedrockSpend) {
+  if (!showBar) {
     return null;
   }
 
   // `null` (not yet answered) reads as unknown/loading, distinct from a
-  // confirmed offline probe.
-  const kbOnline = data?.kb.online ?? null;
+  // confirmed offline probe or a transport failure.
+  const kbIndicator: "error" | "unknown" | "online" | "offline" =
+    error !== null ? "error" : data === null ? "unknown" : data.kb.online ? "online" : "offline";
   const bedrockDaily = data?.bedrockDaily ?? null;
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex h-5 items-center gap-3 border-t border-border bg-muted/90 px-2 text-xs backdrop-blur-sm"
+      className="flex h-5 shrink-0 items-center gap-3 border-t border-border bg-muted px-2 text-xs"
       data-statusline=""
     >
       {showStatuslineKbStatus && (
@@ -45,24 +50,26 @@ export function StatuslineBar() {
             render={
               <span
                 className={cn(
-                  "pointer-events-auto",
-                  kbOnline === true && "text-success",
-                  kbOnline === false && "text-destructive",
-                  kbOnline === null && "text-muted-foreground",
+                  kbIndicator === "online" && "text-success",
+                  kbIndicator === "offline" && "text-destructive",
+                  kbIndicator === "error" && "text-warning",
+                  kbIndicator === "unknown" && "text-muted-foreground",
                 )}
               >
-                KB {kbOnline === true ? "●" : "○"}
+                KB {kbIndicator === "online" ? "●" : "○"}
               </span>
             }
           />
-          <TooltipPopup side="top">Admera knowledge base</TooltipPopup>
+          <TooltipPopup side="top">
+            {kbIndicator === "error" ? "Status query failed" : "Admera knowledge base"}
+          </TooltipPopup>
         </Tooltip>
       )}
       {showStatuslineBedrockSpend && bedrockDaily !== null && (
         <Tooltip>
           <TooltipTrigger
             render={
-              <span className="pointer-events-auto text-muted-foreground">
+              <span className="text-muted-foreground">
                 {"\u{1F4B5}"} {formatUsd(bedrockDaily.cost)}
               </span>
             }

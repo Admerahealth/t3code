@@ -239,9 +239,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         )}
         <SidebarRail onDoubleClick={resetSidebarWidth} />
       </Sidebar>
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1">{children}</div>
+        <StatuslineBar />
+      </div>
       <SidebarControl />
-      <StatuslineBar />
     </SidebarProvider>
   );
 }
