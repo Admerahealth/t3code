@@ -697,6 +697,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetUsageSummary,
       staleTimeMs: 60_000,
     }),
+    // Polls at a fixed interval (not just SWR-on-mount): this is a
+    // persistent statusline segment, not a page the user reopens to refresh.
+    adminStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:admin-status",
+      tag: WS_METHODS.serverGetAdminStatus,
+      staleTimeMs: 60_000,
+      refreshIntervalMs: 60_000,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
