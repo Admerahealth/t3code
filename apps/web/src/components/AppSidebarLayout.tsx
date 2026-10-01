@@ -330,7 +330,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1">{children}</div>
+          {/* Route surfaces use viewport height; clip them to preserve the footer space. */}
+          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
           <StatuslineBar />
         </div>
         <SidebarControl />
