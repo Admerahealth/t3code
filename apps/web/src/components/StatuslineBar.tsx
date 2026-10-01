@@ -79,8 +79,8 @@ export function StatuslineBar() {
             render={
               <span className="text-muted-foreground">
                 {"\u{1F4B5}"} {bedrockDaily.stale ? "~" : ""}
+                {unpricedModels.length > 0 ? "≥" : ""}
                 {formatUsd(bedrockDaily.cost)}
-                {unpricedModels.length > 0 ? "*" : ""}
               </span>
             }
           />
@@ -88,15 +88,15 @@ export function StatuslineBar() {
             <div className="max-w-sm space-y-1">
               <div>
                 Bedrock token-cost estimate for {bedrockDaily.date} ({bedrockDaily.user}), updated{" "}
-                {bedrockDaily.refreshedAt}.
+                {bedrockDaily.refreshedAt}. The amount includes models with known token rates.
               </div>
               {bedrockDaily.stale && (
                 <div>The cache is over ten minutes old; a refresh has been started.</div>
               )}
               {unpricedModels.length > 0 && (
                 <div className="text-warning">
-                  Incomplete: {unpricedCalls.toLocaleString()} calls across {unpricedModels.length}{" "}
-                  unpriced models are excluded. Examples:{" "}
+                  The displayed amount is a lower bound. {unpricedCalls.toLocaleString()} calls
+                  across {unpricedModels.length} unpriced models are excluded. Examples:{" "}
                   <span className="break-all">
                     {unpricedModelSummary}
                     {remainingUnpricedModelCount > 0 && `, and ${remainingUnpricedModelCount} more`}
