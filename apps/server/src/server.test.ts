@@ -1086,8 +1086,7 @@ const buildAppUnderTest = (options?: {
 
     const appLayer = servedRoutesLayer.pipe(
       Layer.provide(resourceTelemetryLayer),
-      Layer.provide(UsageService.layerTest),
-      Layer.provide(AdminStatusService.layerTest),
+      Layer.provide(Layer.merge(UsageService.layerTest, AdminStatusService.layerTest)),
       Layer.provide(
         Layer.mock(AnalyticsService.AnalyticsService)({
           record: () => Effect.void,
@@ -5336,6 +5335,21 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.isUndefined(response.shellRevealInFileManager);
       assert.isUndefined(response.shellRevealInFileManagerKind);
       assert.equal(response.threadResumeCompletionMarker, true);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves Admera status through authenticated websocket RPC", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const status = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverGetAdminStatus]({})),
+      );
+
+      assert.deepEqual(status, {
+        kb: { online: false, checkedAt: "1970-01-01T00:00:00.000Z" },
+        bedrockDaily: null,
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
