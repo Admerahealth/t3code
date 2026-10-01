@@ -220,6 +220,7 @@ jobs:
 
           - Synced with upstream T3 Code.
           - Hermes supports tool approvals, session resume, custom models, and Mixture of Agents presets.
+          - Bedrock spend refreshes every ten minutes and flags totals that exclude unpriced models.
           - Enable Hermes in Settings > Providers after installing Hermes Agent and running `hermes model`.
           - Windows x64 includes the matching Linux x64 runtime for WSL.
           - Desktop updates come from this fork.
@@ -229,7 +230,7 @@ jobs:
           gh release create "v$FORK_VERSION" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$RELEASE_SHA" \
-            --title "Admera T3 Code v$FORK_VERSION — Hermes" \
+            --title "Admera T3 Code v$FORK_VERSION — Hermes and Bedrock spend" \
             --notes-file release-notes.md \
             --draft \
             --latest

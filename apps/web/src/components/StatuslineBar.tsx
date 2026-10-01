@@ -38,6 +38,14 @@ export function StatuslineBar() {
   const kbIndicator: "error" | "unknown" | "online" | "offline" =
     error !== null ? "error" : data === null ? "unknown" : data.kb.online ? "online" : "offline";
   const bedrockDaily = data?.bedrockDaily ?? null;
+  const unpricedModels = bedrockDaily?.unpricedModels ?? [];
+  const unpricedCalls = unpricedModels.reduce((total, entry) => total + entry.calls, 0);
+  const unpricedModelSummary = [...unpricedModels]
+    .sort((left, right) => right.calls - left.calls || left.model.localeCompare(right.model))
+    .slice(0, 3)
+    .map(({ model, calls }) => `${model} (${calls.toLocaleString()} calls)`)
+    .join(", ");
+  const remainingUnpricedModelCount = Math.max(0, unpricedModels.length - 3);
 
   return (
     <div
@@ -70,12 +78,32 @@ export function StatuslineBar() {
           <TooltipTrigger
             render={
               <span className="text-muted-foreground">
-                {"\u{1F4B5}"} {formatUsd(bedrockDaily.cost)}
+                {"\u{1F4B5}"} {bedrockDaily.stale ? "~" : ""}
+                {formatUsd(bedrockDaily.cost)}
+                {unpricedModels.length > 0 ? "*" : ""}
               </span>
             }
           />
           <TooltipPopup side="top">
-            Bedrock spend for {bedrockDaily.date} ({bedrockDaily.user})
+            <div className="max-w-sm space-y-1">
+              <div>
+                Bedrock token-cost estimate for {bedrockDaily.date} ({bedrockDaily.user}), updated{" "}
+                {bedrockDaily.refreshedAt}.
+              </div>
+              {bedrockDaily.stale && (
+                <div>The cache is over ten minutes old; a refresh has been started.</div>
+              )}
+              {unpricedModels.length > 0 && (
+                <div className="text-warning">
+                  Incomplete: {unpricedCalls.toLocaleString()} calls across {unpricedModels.length}{" "}
+                  unpriced models are excluded. Examples:{" "}
+                  <span className="break-all">
+                    {unpricedModelSummary}
+                    {remainingUnpricedModelCount > 0 && `, and ${remainingUnpricedModelCount} more`}
+                  </span>
+                </div>
+              )}
+            </div>
           </TooltipPopup>
         </Tooltip>
       )}

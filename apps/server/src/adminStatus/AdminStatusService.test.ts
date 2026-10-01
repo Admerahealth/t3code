@@ -63,23 +63,53 @@ describe("resolveBedrockDailyCost", () => {
     user: "justin",
     cost: 10.5,
     refreshed_at: "2026-09-01T12:00:00.000Z",
+    unpriced_models: [{ model: "us.openai.gpt-6-luna", calls: 42 }],
   };
 
   it("keeps the cost when the cached date matches today", () => {
-    expect(AdminStatusService.resolveBedrockDailyCost(parsed, "2026-09-01")).toEqual({
+    expect(
+      AdminStatusService.resolveBedrockDailyCost(
+        parsed,
+        "2026-09-01",
+        Date.parse("2026-09-01T12:05:00.000Z"),
+      ),
+    ).toEqual({
       date: "2026-09-01",
       user: "justin",
       cost: 10.5,
       refreshedAt: "2026-09-01T12:00:00.000Z",
+      stale: false,
+      unpricedModels: [{ model: "us.openai.gpt-6-luna", calls: 42 }],
     });
   });
 
+  it("marks a same-day cache stale after ten minutes so it can refresh", () => {
+    const result = AdminStatusService.resolveBedrockDailyCost(
+      parsed,
+      "2026-09-01",
+      Date.parse("2026-09-01T12:10:00.000Z"),
+    );
+    expect(result?.stale).toBe(true);
+  });
+
   it("returns null when the cached date is stale", () => {
-    expect(AdminStatusService.resolveBedrockDailyCost(parsed, "2026-09-02")).toBeNull();
+    expect(
+      AdminStatusService.resolveBedrockDailyCost(
+        parsed,
+        "2026-09-02",
+        Date.parse("2026-09-02T12:00:00.000Z"),
+      ),
+    ).toBeNull();
   });
 
   it("returns null when nothing was parsed", () => {
-    expect(AdminStatusService.resolveBedrockDailyCost(null, "2026-09-01")).toBeNull();
+    expect(
+      AdminStatusService.resolveBedrockDailyCost(
+        null,
+        "2026-09-01",
+        Date.parse("2026-09-01T12:00:00.000Z"),
+      ),
+    ).toBeNull();
   });
 });
 

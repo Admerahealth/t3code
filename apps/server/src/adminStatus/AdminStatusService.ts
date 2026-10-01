@@ -41,43 +41,59 @@ const DEFAULT_KB_COMMAND = "kb";
 const KB_STATUS_CACHE_TTL_NANOS = 90_000_000_000n;
 
 const BEDROCK_CACHE_RELATIVE_SEGMENTS = ["admera-claude-tools", "bedrock-daily-cost.json"];
+/** Keep aligned with bedrock-daily-cost-refresh.sh's default TTL. */
+const BEDROCK_CACHE_TTL_MS = 600_000;
+const BEDROCK_CACHE_TTL_NANOS = 600_000_000_000n;
 
 /** Bedrock's cost cache is refreshed relative to Eastern time, not UTC. */
 const formatEasternDay = makeDayFormatter("America/New_York");
 
 /**
- * On-disk shape written by `admera-claude-tools` (snake_case). `models` is
- * intentionally not declared: the wire contract never re-exposes it, and
- * unknown extra keys are ignored by decoding rather than rejected.
+ * On-disk shape written by `admera-claude-tools` (snake_case). The unpriced
+ * list was added after the original cache format, so it stays optional here.
  */
 const BedrockDailyCostFile = Schema.Struct({
   date: Schema.String,
   user: Schema.String,
   cost: Schema.Number,
   refreshed_at: Schema.String,
+  unpriced_models: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        model: Schema.String,
+        calls: Schema.Number,
+      }),
+    ),
+  ),
 });
 const decodeBedrockDailyCostFile = Schema.decodeUnknownEffect(
   Schema.fromJsonString(BedrockDailyCostFile),
 );
 
 /**
- * Applies the freshness guard: a cache file whose `date` is not today in
- * America/New_York is stale (the refresher runs out-of-band, so a sleep
- * through midnight must not keep showing yesterday's total). Pure so the
- * guard is testable without touching the filesystem.
+ * Rejects another ET date and marks an old same-day value stale. Keeping the
+ * old amount visible while a detached refresh runs avoids a blank badge while
+ * making its age explicit. Pure so the guard is testable without the filesystem.
  */
 export function resolveBedrockDailyCost(
   parsed: typeof BedrockDailyCostFile.Type | null,
   todayEasternDay: string,
+  nowMs: number,
 ): BedrockDailyCost | null {
   if (parsed === null || parsed.date !== todayEasternDay) {
     return null;
   }
+  const refreshedAtMs = Date.parse(parsed.refreshed_at);
   return {
     date: parsed.date,
     user: parsed.user,
     cost: parsed.cost,
     refreshedAt: parsed.refreshed_at,
+    stale:
+      !Number.isFinite(refreshedAtMs) ||
+      nowMs < refreshedAtMs ||
+      nowMs - refreshedAtMs >= BEDROCK_CACHE_TTL_MS,
+    unpricedModels: parsed.unpriced_models ?? [],
   };
 }
 
@@ -171,6 +187,7 @@ export const make = Effect.gen(function* () {
   });
 
   const kbStatusCache = yield* Ref.make<Option.Option<KbStatusCacheEntry>>(Option.none());
+  const lastBedrockRefreshNudgeNanos = yield* Ref.make<Option.Option<bigint>>(Option.none());
 
   // Never caches a failed/interrupted probe: only a completed `probeKb`
   // result reaches the `Ref.set`, so a client disconnecting mid-probe leaves
@@ -192,11 +209,17 @@ export const make = Effect.gen(function* () {
 
   /**
    * Fire-and-forget: the refresh script owns its own locking and silently
-   * no-ops on failure or if it's already running, so it is safe to nudge it
-   * on every stale/missing read. Detached so a hung script can never delay
-   * this (or any other) RPC.
+   * no-ops on failure or if it's already running. This service rate-limits
+   * nudges to the same ten-minute cache TTL. Detached so a hung script can
+   * never delay this (or any other) RPC.
    */
   const triggerBedrockRefresh = Effect.gen(function* () {
+    const nowNanos = yield* Clock.currentTimeNanos;
+    const lastNudge = yield* Ref.get(lastBedrockRefreshNudgeNanos);
+    if (Option.isSome(lastNudge) && nowNanos - lastNudge.value < BEDROCK_CACHE_TTL_NANOS) {
+      return;
+    }
+    yield* Ref.set(lastBedrockRefreshNudgeNanos, Option.some(nowNanos));
     const toolsHome = yield* resolveAdmeraClaudeToolsHome;
     const scriptPath = path.join(toolsHome, "scripts", "bedrock-daily-cost-refresh.sh");
     const exists = yield* fileSystem.exists(scriptPath).pipe(Effect.orElseSucceed(() => false));
@@ -219,8 +242,8 @@ export const make = Effect.gen(function* () {
       return yield* decodeBedrockDailyCostFile(raw);
     }).pipe(Effect.catchCause(() => Effect.succeed(null)));
     const nowMs = yield* Clock.currentTimeMillis;
-    const resolved = resolveBedrockDailyCost(parsed, formatEasternDay(nowMs));
-    if (resolved === null) {
+    const resolved = resolveBedrockDailyCost(parsed, formatEasternDay(nowMs), nowMs);
+    if (resolved === null || resolved.stale) {
       yield* triggerBedrockRefresh;
     }
     return resolved;

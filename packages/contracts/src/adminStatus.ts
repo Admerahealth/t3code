@@ -23,6 +23,15 @@ export const BedrockDailyCost = Schema.Struct({
   user: Schema.String,
   cost: Schema.Number,
   refreshedAt: Schema.String,
+  /** True when the cache is older than the refresher's ten-minute TTL. */
+  stale: Schema.Boolean,
+  /** Bedrock calls excluded from the token-priced total. */
+  unpricedModels: Schema.Array(
+    Schema.Struct({
+      model: Schema.String,
+      calls: Schema.Number,
+    }),
+  ),
 });
 export type BedrockDailyCost = typeof BedrockDailyCost.Type;
 
