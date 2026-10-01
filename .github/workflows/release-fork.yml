@@ -1,0 +1,235 @@
+name: Fork release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Fork release version, for example 0.0.46"
+        required: true
+        type: string
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  bundle:
+    name: Test and build fork
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      clerk_publishable_key: ${{ steps.config.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ steps.config.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ steps.config.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ steps.config.outputs.relay_url }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Validate release version
+        id: version
+        env:
+          FORK_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$FORK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Use a plain version such as 0.0.46."
+            exit 1
+          }
+          if gh release view "v$FORK_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release v$FORK_VERSION already exists."
+            exit 1
+          fi
+          echo "version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install build dependencies
+        run: vp install --frozen-lockfile --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Test Hermes and preserved fork features
+        run: |
+          vp test run \
+            apps/server/src/provider/acp/HermesAcpSupport.test.ts \
+            apps/server/src/provider/Layers/HermesAdapter.test.ts \
+            apps/server/src/provider/Layers/HermesProvider.test.ts \
+            apps/server/src/textGeneration/HermesTextGeneration.test.ts \
+            apps/server/src/serverSettings.test.ts \
+            apps/server/src/provider/Layers/ProviderRegistry.test.ts \
+            packages/contracts/src/settings.test.ts \
+            apps/server/src/adminStatus/AdminStatusService.test.ts \
+            apps/server/src/auth/RpcAuthorization.test.ts \
+            apps/desktop/src/settings/DesktopClientSettings.test.ts \
+            apps/server/src/usage/usageAggregation.test.ts \
+            apps/server/src/provider/acp/CursorAcpSupport.test.ts \
+            apps/server/src/provider/acp/GrokAcpSupport.test.ts \
+            apps/server/src/provider/acp/AntigravityAcpSupport.test.ts \
+            apps/server/src/provider/acp/AcpCoreRuntimeEvents.test.ts \
+            apps/web/src/components/settings/ProviderSettingsForm.test.ts \
+            apps/web/src/components/settings/ProviderModelsSection.test.ts \
+            apps/web/src/components/settings/settingsSearch.test.ts \
+            apps/web/src/components/settings/SettingsPanels.logic.test.ts
+          vp test run apps/server/src/server.test.ts \
+            -t 'serves Admera status|accepts websocket rpc handshake with a bootstrapped'
+
+      - name: Typecheck shipped apps
+        run: |
+          vp run --filter t3 typecheck
+          vp run --filter @t3tools/web typecheck
+          vp run --filter @t3tools/desktop typecheck
+
+      - name: Load public T3 Connect configuration
+        id: config
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          for pair in \
+            clerk_publishable_key:T3CODE_CLERK_PUBLISHABLE_KEY \
+            clerk_jwt_template:T3CODE_CLERK_JWT_TEMPLATE \
+            clerk_cli_oauth_client_id:T3CODE_CLERK_CLI_OAUTH_CLIENT_ID \
+            relay_url:T3CODE_RELAY_URL; do
+            output="${pair%%:*}"
+            key="${pair#*:}"
+            value="$(sed -n "s/^${key}=//p" .env.example)"
+            echo "$output=$value" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Align release versions
+        env:
+          FORK_VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/update-release-package-versions.ts "$FORK_VERSION"
+
+      - name: Install browser secret helper libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Build web, server, and Electron bundles
+        run: vp run build:desktop
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Desktop Linux x64
+    needs: bundle
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      version: ${{ needs.bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.bundle.outputs.relay_url }}
+
+  windows:
+    name: Desktop Windows x64
+    needs: bundle
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      label: Windows x64
+      runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+      cli_archive: true
+      version: ${{ needs.bundle.outputs.version }}
+      ref: ${{ github.sha }}
+      release_channel: stable
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ needs.bundle.outputs.clerk_publishable_key }}
+      clerk_jwt_template: ${{ needs.bundle.outputs.clerk_jwt_template }}
+      clerk_cli_oauth_client_id: ${{ needs.bundle.outputs.clerk_cli_oauth_client_id }}
+      relay_url: ${{ needs.bundle.outputs.relay_url }}
+
+  publish:
+    name: Stage fork release
+    needs: [bundle, linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download desktop installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Download CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Prepare updater metadata and checksums
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for manifest in release-assets/*-win-x64.yml; do
+            mv "$manifest" "${manifest%-win-x64.yml}.yml"
+          done
+          rm -f release-assets/builder-debug.yml
+          cd release-assets
+          sha256sum *.exe *.AppImage *.deb t3-*.tar.gz t3-*.zip > SHA256SUMS
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORK_VERSION: ${{ needs.bundle.outputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          T3 Code with the Admera status line and Nous Research's Hermes Agent provider.
+
+          - Synced with upstream T3 Code.
+          - Hermes supports tool approvals, session resume, custom models, and Mixture of Agents presets.
+          - Enable Hermes in Settings > Providers after installing Hermes Agent and running `hermes model`.
+          - Windows x64 includes the matching Linux x64 runtime for WSL.
+          - Desktop updates come from this fork.
+
+          Downloads include the Windows installer, Linux AppImage and Debian package, standalone CLI archives, and SHA256 checksums. The installers are unsigned.
+          EOF
+          gh release create "v$FORK_VERSION" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" \
+            --title "Admera T3 Code v$FORK_VERSION — Hermes" \
+            --notes-file release-notes.md \
+            --draft \
+            --latest
