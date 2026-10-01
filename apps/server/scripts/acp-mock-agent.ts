@@ -70,6 +70,7 @@ const permissionRequestCount = Math.max(
   Number(process.env.T3_ACP_PERMISSION_REQUEST_COUNT ?? "1") || 1,
 );
 const sessionId = "mock-session-1";
+const requiredAuthMethod = process.env.T3_ACP_REQUIRED_AUTH_METHOD;
 
 let currentModeId = antigravityProfile ? "default" : "ask";
 let currentModelId = antigravityProfile ? "gemini-test-low" : "default";
@@ -411,6 +412,16 @@ const program = Effect.gen(function* () {
       return {
         protocolVersion: 1,
         agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {} } },
+        ...(requiredAuthMethod
+          ? {
+              authMethods: [
+                ...(requiredAuthMethod === "hermes-setup"
+                  ? []
+                  : [{ id: requiredAuthMethod, name: "Runtime credentials" }]),
+                { id: "hermes-setup", name: "Configure Hermes" },
+              ],
+            }
+          : {}),
         // Grok advertises model state before any session exists; the provider
         // health check reads it from here without authenticating.
         _meta: { modelState: modelState() },
@@ -421,15 +432,17 @@ const program = Effect.gen(function* () {
   // Mirrors the real agent: the API key method reads GEMINI_API_KEY from the
   // process environment and rejects when it is missing.
   yield* agent.handleAuthenticate((request) =>
-    !antigravityProfile || request.methodId === "oauth-personal"
-      ? Effect.succeed({})
-      : request.methodId === "gemini-api-key" && process.env.GEMINI_API_KEY
+    requiredAuthMethod && request.methodId !== requiredAuthMethod
+      ? Effect.fail(AcpError.AcpRequestError.invalidParams("Unadvertised authentication method"))
+      : !antigravityProfile || request.methodId === "oauth-personal"
         ? Effect.succeed({})
-        : Effect.fail(
-            AcpError.AcpRequestError.invalidParams(
-              `Mock Antigravity rejected auth method ${request.methodId}.`,
+        : request.methodId === "gemini-api-key" && process.env.GEMINI_API_KEY
+          ? Effect.succeed({})
+          : Effect.fail(
+              AcpError.AcpRequestError.invalidParams(
+                `Mock Antigravity rejected auth method ${request.methodId}.`,
+              ),
             ),
-          ),
   );
   if (antigravityProfile) {
     yield* agent.handleLogout(() => Effect.succeed({}));

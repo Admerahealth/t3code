@@ -280,6 +280,19 @@ export const GrokIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+/**
+ * No branded Hermes Agent mark is available (and none is hotlinked from an
+ * external source), so this is a neutral monochrome "H" glyph in the same
+ * style as the other CLI provider icons.
+ */
+export const HermesIcon: Icon = ({ className, ...props }) => (
+  <svg {...props} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <rect x="5" y="4" width="3" height="16" />
+    <rect x="16" y="4" width="3" height="16" />
+    <rect x="5" y="10.5" width="14" height="3" />
+  </svg>
+);
+
 export const TraeIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     {/* Back rectangle: left strip + bottom strip drawn separately — empty bottom-left corner is the gap between them */}

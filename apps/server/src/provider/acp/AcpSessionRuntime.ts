@@ -95,7 +95,11 @@ export interface AcpSessionRuntimeOptions {
     readonly name: string;
     readonly version: string;
   };
-  readonly authMethodId: string;
+  readonly authMethodId:
+    | string
+    | ((
+        response: EffectAcpSchema.InitializeResponse,
+      ) => Effect.Effect<string, EffectAcpErrors.AcpError>);
   readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Extra workspace roots the agent may read and write besides `cwd`. */
   readonly additionalDirectories?: ReadonlyArray<string>;
@@ -743,8 +747,12 @@ export const make = (
     const startOnce = Effect.gen(function* () {
       const initializeResult = yield* sendInitialize;
 
+      const methodId =
+        typeof options.authMethodId === "string"
+          ? options.authMethodId
+          : yield* options.authMethodId(initializeResult);
       const authenticatePayload = {
-        methodId: options.authMethodId,
+        methodId,
       } satisfies EffectAcpSchema.AuthenticateRequest;
 
       yield* runLoggedRequest(

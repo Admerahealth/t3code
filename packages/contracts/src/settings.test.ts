@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  HermesSettings,
   DEFAULT_SERVER_SETTINGS,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -19,6 +20,7 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+const decodeHermesSettings = Schema.decodeUnknownSync(HermesSettings);
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
@@ -189,6 +191,15 @@ describe("custom model settings", () => {
     expect(() =>
       decodeServerSettingsPatch({ providers: { codex: { customModels: [{ name: "no slug" }] } } }),
     ).toThrow();
+  });
+
+  it("preserves named Hermes presets at both settings boundaries", () => {
+    const customModels = ["moa:default", { slug: "moa:review", name: "Review adviser" }];
+    expect(decodeHermesSettings({ customModels }).customModels).toEqual(customModels);
+    expect(
+      decodeServerSettingsPatch({ providers: { hermes: { customModels } } }).providers?.hermes
+        ?.customModels,
+    ).toEqual(customModels);
   });
 });
 
@@ -769,6 +780,7 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.claudeAgent.enabled).toBe(true);
     expect(decoded.providers.cursor.enabled).toBe(false);
     expect(decoded.providers.grok.enabled).toBe(false);
+    expect(decoded.providers.hermes.enabled).toBe(false);
     expect(decoded.providers.opencode.enabled).toBe(false);
   });
 
